@@ -1,0 +1,43 @@
+# Prep-Weaver runtime dependencies.
+#
+# Versions are the ones this code has actually been run against; earlier
+# releases of most of these will work, but the pins are what was verified.
+#
+# Install with:
+#     conda create -n prepweaver python=3.11 && conda activate prepweaver
+#     pip install -r requirements.txt
+
+# --- core data handling -----------------------------------------------------
+pandas==2.3.2
+numpy==2.5.1
+scipy==1.16.1                 # hierarchical clustering, for the join graph
+networkx==3.5                 # table graph and domain partitioning
+sqlglot==28.5.0               # parsing declared schemas and join edges
+
+# --- trained models ---------------------------------------------------------
+scikit-learn==1.7.1           # the two operator classifiers in models/
+joblib==1.5.2                 # loads them
+
+# --- the localizer (self-correction) ----------------------------------------
+# A frozen answerdotai/ModernBERT-base encoder with trained heads. transformers
+# downloads and caches the ~600 MB encoder on first use; only the small head
+# checkpoint lives in models/. peft is needed only for a LoRA checkpoint — the
+# shipped one has lora=0 — but load_checkpoint imports it conditionally, so it
+# is listed to keep that path working.
+torch==2.8.0
+transformers==4.57.1
+peft==0.18.0
+
+# --- retrieval --------------------------------------------------------------
+# The stage-1 sentence encoder (WhereIsAI/UAE-Large-V1) also comes through
+# transformers; no extra package is required.
+
+# --- LLM client -------------------------------------------------------------
+openai==2.44.0
+
+# --- misc -------------------------------------------------------------------
+tqdm==4.67.1
+
+# --- NOT installed from here ------------------------------------------------
+# The external evaluator (eval_all_oom.py, lineage.py) is a separate checkout.
+# See the "Evaluation" section of the README; point DEEPPREP_EVAL_DIR at it.
