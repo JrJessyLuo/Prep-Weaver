@@ -35,6 +35,10 @@ peft==0.18.0
 # --- LLM client -------------------------------------------------------------
 openai==2.44.0
 
+# --- scoring SQL-emitting baselines (optional) -------------------------------
+# Only `eval.scorer --source pneuma` needs it; every other method scores without.
+duckdb==1.5.1
+
 # --- misc -------------------------------------------------------------------
 tqdm==4.67.1
 

@@ -9,15 +9,6 @@ one JSON object per line, one line per task.
 | `Synth-Spider/` | nl2sql-spider | 103 | Synthetic prep tasks over Spider databases |
 | `Beaver-Prep/` | beaver | 119 | Real enterprise data warehouse (MIT), 96-table collection |
 
-**Task**: given a natural-language question and a pool of candidate tables,
-produce the minimal joinable subtables plus a joinability specification
-(which columns join which tables).
-
-Only `benchmark.jsonl` is in this repository. The table data (`*.pkl` pandas
-DataFrames), the gold answers, the relation files and Beaver's column profiling
-are **downloaded separately** — see below. The fields documented here reference
-them by file name.
-
 ---
 
 ## 0. Getting the data
@@ -35,7 +26,7 @@ datasets/
 │   ├── benchmark.jsonl           141 tasks            (in the repo)
 │   ├── input_tables/             374 candidate tables (download)
 │   ├── answer/                   gold answer tables   (download)
-│   └── tables_rels/              gold subtables + sqlite (download)
+│   └── tables_rels/              gold prepared tables based on sqlite (download)
 ├── Synth-Spider/
 │   ├── benchmark.jsonl           103 tasks            (in the repo)
 │   ├── input_tables/             347 candidate tables (download)
@@ -43,35 +34,11 @@ datasets/
 │   └── tables_rels/                                   (download)
 └── Beaver-Prep/
     ├── benchmark.jsonl           119 tasks            (in the repo)
-    ├── profiles/                 column profiling     (download)
-    ├── input_tables/             96 warehouse tables  (download)
+    ├── profiles/                 compatibility profiling     (download)
+    ├── input_tables/             96 tables  (download)
     ├── answer/                                        (download)
     └── tables_rels/                                   (download)
 ```
-
-Nothing else has to be configured: every stage finds its data here by dataset
-name. Check what resolved before running anything expensive:
-
-```bash
-cd ../codes
-python -c "from common import dataset as D; d = D.resolve('Synth-Bird'); \
-           print(d.input_tables); print('missing:', d.missing() or 'nothing')"
-```
-
-`missing: nothing` means the dataset is ready. Anything listed is a folder that
-was not unpacked to the right place.
-
-If the data has to live elsewhere (a shared scratch disk, say), point at it
-instead of copying:
-
-```bash
-export PREPWEAVER_DATA_ROOT=/path/holding/<Dataset>/...
-```
-
-`Beaver-Prep/profiles/` is only read by `table_discovery.run_pipeline`, the
-retrieval stage that Beaver alone needs. It is 81 MB, dominated by
-`dev_jaccard.json` (the pairwise value-containment profile), which is why it is
-distributed rather than committed.
 
 ---
 
@@ -84,8 +51,6 @@ distributed rather than committed.
 | `db_id` | str | Source database (`card_games`, `video_game`, `dw`, …). |
 | `origin_idx` | int | Row index in the original NL2SQL benchmark this task was derived from. |
 | `input_table` | list[str] | Candidate table files, e.g. `bird_058b8e3b_input_0.pkl`. In Synth-* the **first `relevant_table_num` entries are the gold tables** (positional convention). |
-| `difficulty` | str | Difficulty label inherited from the source benchmark (Synth-* only; `none` where unlabelled). |
-| `sampled` | bool | Whether the task was drawn by sampling (Synth-Bird only). |
 
 ### Beaver-only input fields
 
@@ -110,9 +75,6 @@ They also have no explicit `gold_tables` — use the positional convention above
 | `dc_ops` | list[str] | **Gold preparation operator sequence.** Each entry is a call string carrying the operator name, its `table_name`, and full parameters (including Python `func` bodies for split/concat/standardise). This is the reference for operator-sequence accuracy. |
 | `ops` | list[obj] | Compact view of `dc_ops`: `{"op": "SplitColumn", "tag": "mixed"}`. `tag` marks what the operator serves — `join_key`, `attribute`, or `mixed`. |
 
-Tag distribution differs sharply by benchmark: Beaver is join-key dominated
-(285 `join_key` vs 71 `attribute`), Synth-* are attribute dominated.
-
 ---
 
 ## 3. Size and difficulty counters (from the source benchmark)
@@ -121,8 +83,7 @@ Tag distribution differs sharply by benchmark: Beaver is join-key dominated
 |---|---|---|
 | `relevant_table_num` | int | Number of gold tables. Median 2 / 2 / 4 (Bird / Spider / Beaver). |
 | `join_num` | int | Number of joins in the gold SQL. |
-| `prep_num` | int | Number of preparation operators = `len(dc_ops)`. Median 2 / 2 / 3. |
-| `total_ops_num` | int | Preparation plus query-side operators. |
+| `prep_num` | int | Number of preparation operators = `len(dc_ops)`. 
 
 ---
 

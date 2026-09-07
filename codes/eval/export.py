@@ -81,6 +81,29 @@ def export_dataset(dataset: str, out_dir: Optional[Path] = None,
         # The exporter reads `gold_tables`; the schema uses `tables`.
         plan = dict(plan)
         plan["gold_tables"] = plan.get("tables") or plan.get("gold_tables") or []
+
+        if repaired:
+            # Swap in the state self-correction CHOSE. Without this the flag
+            # loaded the repair record and then exported the unrepaired pipeline
+            # anyway, so the "with self-correction" column scored the same thing
+            # as the "without" column and the ablation read as "changes nothing".
+            rrec = repairs.get(tid)
+            if not rrec:
+                skipped.append((tid, "no repair record"))
+                continue
+            best = next((n for n in rrec.get("nodes") or []
+                         if n.get("id") == rrec.get("best")), None)
+            if best is None or "steps_by_table" not in best:
+                skipped.append((tid, "repair record predates per-node provenance; re-run the loop"))
+                continue
+            pipe = dict(pipe)
+            pipe["tables"] = {lt: {**(pipe.get("tables") or {}).get(lt, {}),
+                                   "steps": best["steps_by_table"].get(lt, [])}
+                              for lt in best["steps_by_table"]}
+            if best.get("rewrite_by_table"):
+                pipe["codes"] = best["rewrite_by_table"]
+            if rrec.get("join_keys"):
+                pipe["join_keys"] = rrec["join_keys"]
         try:
             p = EX.export_one(pipe, plan, task, out_dir, bench_dir=ds.input_tables)
             written.append(p)
@@ -93,8 +116,12 @@ def export_dataset(dataset: str, out_dir: Optional[Path] = None,
     if skipped:
         print(f"[export] skipped {len(skipped)}: {skipped[:5]}")
 
+    # Usage covers every script PRESENT in the directory, not only the ones this
+    # invocation wrote. Scoping it to `written` meant a --task-ids export replaced
+    # a complete _metrics.csv with two rows, and the evaluator then reported cost
+    # for two tasks while scoring a hundred and forty-one.
     write_usage(dataset, out_dir, repaired=repaired,
-                task_ids=[p.stem for p in written])
+                task_ids=[f.stem for f in Path(out_dir).glob("*.py")])
     return written
 
 

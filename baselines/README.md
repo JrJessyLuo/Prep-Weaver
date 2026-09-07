@@ -28,7 +28,6 @@ methods.
 
 ```text
 baselines/
-  adapted_gold_spec.py
   text-to-pipeline-adapted/
     run_staged.py
   bat-adapted/
@@ -37,8 +36,6 @@ baselines/
     run_staged.py
 ```
 
-`adapted_gold_spec.py` is a helper for the optional gold-specification ablation.
-The main adapted setting does not use gold specifications.
 
 ## Stage 1: Relevant Table Selection
 
@@ -203,20 +200,24 @@ python run_staged.py \
   --max_steps 3
 ```
 
-## Optional Ablations
 
-Use gold relevant tables but still infer specifications/target metadata:
+## `baseline_results/`
 
-```bash
---use-gold-tables
+The generated output of each baseline, one file per task:
+
+```
+baseline_results/<method>/<Dataset>/<task_id>.py     # or .json for SQL methods
 ```
 
-Use both gold relevant tables and gold specifications:
+These are the artefacts the evaluation scores, so a comparison can be reproduced
+without re-running any baseline. Score them with the repository's own scorer:
 
 ```bash
---use-gold-tables --use-gold-specification
+cd ../codes
+python -m eval.scorer --list
+python -m eval.scorer --dataset Synth-Bird --source gpt-5.5
+python -m eval.scorer --dataset Synth-Bird --source all
 ```
 
-These ablations write outputs to separate result directories and should be
-reported separately from the main end-to-end adapted setting.
+Note that not every method can have the output result due to the pipeline generation fails.
 

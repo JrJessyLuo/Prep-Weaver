@@ -98,17 +98,30 @@ def _efforts_to_try(model: str) -> list[str | None]:
     return [*REASONING_EFFORT_LADDER, None]
 
 
-def _call(prompt: str, model: str, max_tokens: int, temperature: float):
+def _call(prompt: str, model: str, max_tokens: int, temperature: float,
+          json_format: bool = False, seed: int | None = None):
     """One raw API call.
 
     The GPT-5 family goes through the Responses API; everything else through
     Chat Completions. For GPT-5 the reasoning effort is negotiated once per
     model against REASONING_EFFORT_LADDER, because the accepted values differ
     between variants.
+
+    `json_format` is NOT decorative. Callers that parse the reply as JSON pass
+    it, and it does two things: it asks the API for a guaranteed-parseable
+    object, and it tells the model so in the system prompt. Accepting the flag
+    and ignoring it — which this function used to do — leaves the model free to
+    answer in prose or fenced markdown; the caller's json.loads then fails, and
+    in the operator search a failed parse silently discards that candidate
+    operator and the beam continues down a different chain.
     """
     client = _client()
+    system = SYSTEM_PROMPT
+    if json_format:
+        system = (f"{system} Return only one valid JSON object. "
+                  "Do not wrap the response in markdown or add explanatory text.")
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system},
         {"role": "user", "content": prompt},
     ]
 
@@ -135,22 +148,29 @@ def _call(prompt: str, model: str, max_tokens: int, temperature: float):
             f"{model} rejected every reasoning effort value "
             f"{list(_efforts_to_try(model))}: {last_error}")
 
-    response = client.chat.completions.create(
-        model=model, messages=messages, stream=False, top_p=1,
-        temperature=temperature, max_tokens=max_tokens,
-    )
+    params: Dict[str, Any] = dict(model=model, messages=messages, stream=False,
+                                  top_p=1, max_tokens=max_tokens)
+    if temperature is not None:
+        params["temperature"] = temperature
+    if seed is not None:
+        params["seed"] = seed          # best-effort determinism; the only handle the API offers
+    if json_format:
+        params["response_format"] = {"type": "json_object"}
+    response = client.chat.completions.create(**params)
     return response.choices[0].message.content, response
 
 
 def llm_generate(prompt: str, model: str = "gpt-4.1", max_tokens: int = 8192,
-                 temperature: float = 0.3, max_retries: int = 5) -> str:
+                 temperature: float | None = 0.0, max_retries: int = 5,
+                 json_format: bool = False) -> str:
     """Return the model's text output, retrying transient API failures."""
     global _TOTAL_INPUT_TOKENS, _TOTAL_OUTPUT_TOKENS
 
     last_error = None
     for attempt in range(max_retries):
         try:
-            text, response = _call(prompt, model, max_tokens, temperature)
+            text, response = _call(prompt, model, max_tokens, temperature,
+                                   json_format=json_format)
             usage = _usage(response)
             _TOTAL_INPUT_TOKENS += usage["input_tokens"]
             _TOTAL_OUTPUT_TOKENS += usage["output_tokens"]
@@ -164,20 +184,26 @@ def llm_generate(prompt: str, model: str = "gpt-4.1", max_tokens: int = 8192,
     raise RuntimeError(f"LLM request failed after {max_retries} attempts: {last_error}")
 
 
-def llm_generate_setup(prompt: str, model: str, max_tokens: int = 8192,
-                       temperature: float = 0.9, max_retries: int = 5,
-                       json_format: bool = False) -> Dict[str, Any]:
-    """Same call, but returning text together with the token counts.
+def llm_generate_setup(prompt: str, model: str = "gpt-4o-2024-08-06",
+                       max_tokens: int = 8192, temperature: float | None = 0.0,
+                       max_retries: int = 5, json_format: bool = False,
+                       seed: int | None = None) -> Dict[str, Any]:
+    """Same call, returning the text together with the token counts.
 
-    json_format is accepted for signature compatibility; the prompts in this
-    module already instruct the model to emit bare JSON.
+    temperature defaults to 0.0, not to a sampling value. Everything that calls
+    this is a structured-output step — operator parameter synthesis, schema
+    revision, table selection — where a different sample is simply a different
+    answer to a question that has one. Running it at 0.3 turned the operator
+    search into a stochastic one: the same table and the same declared schema
+    produced different chains on different runs.
     """
     global _TOTAL_INPUT_TOKENS, _TOTAL_OUTPUT_TOKENS
 
     last_error = None
     for attempt in range(max_retries):
         try:
-            text, response = _call(prompt, model, max_tokens, temperature)
+            text, response = _call(prompt, model, max_tokens, temperature,
+                                   json_format=json_format, seed=seed)
             usage = _usage(response)
             _TOTAL_INPUT_TOKENS += usage["input_tokens"]
             _TOTAL_OUTPUT_TOKENS += usage["output_tokens"]

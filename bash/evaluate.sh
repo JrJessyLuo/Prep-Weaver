@@ -1,38 +1,38 @@
 #!/usr/bin/env bash
-# Export, score and report the four metrics for one dataset, twice: without and
-# with self-correction.
+# Score one dataset.
 #
-#     bash/evaluate.sh Synth-Bird
+#     bash/evaluate.sh Synth-Bird              this system, both arms
+#     bash/evaluate.sh Synth-Bird all          this system + every baseline
+#     bash/evaluate.sh Synth-Bird dsstar,pneuma
 #
-# Scoring re-executes each exported script under a lineage tracer, so a run must
-# be exported before it can be scored at all.
+# The scorer is self-contained: no external checkout, no separate export step.
+# Baselines are scored by executing their generated code, so the dataset's
+# input tables must already be in place under datasets/<Dataset>/.
 set -euo pipefail
 
 DS="${1:-}"
 if [[ -z "$DS" ]]; then
-    echo "usage: $0 <Synth-Bird|Synth-Spider|Beaver-Prep>" >&2
+    echo "usage: $0 <Synth-Bird|Synth-Spider|Beaver-Prep> [sources]" >&2
     exit 1
 fi
+SRC="${2:-}"
 
 cd "$(dirname "$0")/../codes"
-: "${DEEPPREP_EVAL_DIR:?point DEEPPREP_EVAL_DIR at the directory holding eval_all_oom.py}"
-
 OUT="../results/eval/$DS"
 
+if [[ -n "$SRC" ]]; then
+    python -m eval.scorer --dataset "$DS" --source "$SRC" --out "$OUT/metrics.csv"
+    exit 0
+fi
+
+# Default: the self-correction ablation, as two separate tables.
 echo "=== without self-correction ==="
-python -m eval.export  --dataset "$DS"
-python -m eval.score   --dataset "$DS" --method ours
-python -m eval.metrics --dataset "$DS" --source selection \
+python -m eval.scorer --dataset "$DS" --source no_self_correction \
        --out "$OUT/metrics_no_repair.csv"
 
 echo
 echo "=== with self-correction ==="
-python -m eval.export  --dataset "$DS" --repaired
-# A DISTINCT method key: the evaluator replaces every row of a method in its
-# store, so scoring the repaired run as `ours` would destroy the baseline row it
-# is meant to be compared against.
-python -m eval.score   --dataset "$DS" --repaired
-python -m eval.metrics --dataset "$DS" --source repair --method ours_repaired \
+python -m eval.scorer --dataset "$DS" --source self_correction \
        --out "$OUT/metrics_repaired.csv"
 
 echo

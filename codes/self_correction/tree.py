@@ -138,6 +138,16 @@ class Node:
             "error": self.error,
             "score": self.score,
             "produced": self.summary(),
+            # PROVENANCE, not decoration. `produced` records the columns a node
+            # holds; these record how to REBUILD its frames. Scoring and export
+            # both re-execute rather than read frames, so a node without them
+            # cannot be scored at all — and the failure is silent, because the
+            # unrepaired pipeline is still there to fall back on, which makes a
+            # repaired run score identically to the run it was meant to improve.
+            "steps_by_table": {lt: list(v) for lt, v in
+                               (getattr(self.state, "steps", None) or {}).items()},
+            "rewrite_by_table": {lt: dict(v) for lt, v in
+                                 (getattr(self.state, "rewrite", None) or {}).items()},
             # The tables this node SELECTED, not just the ones it produced.
             # `revise_table` changes the selection, so table identification
             # accuracy has to be read off the node that was finally chosen, not

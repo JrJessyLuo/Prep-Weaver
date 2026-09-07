@@ -1,0 +1,1 @@
+{"task_id": "spider_46201c50", "question": "What are the names of all authors who have more than 50 papers?", "mode": "upload", "dataset": null, "status": "failed:InvalidIndexError", "error": "InvalidIndexError({'name': 'author_id'})", "statements": [], "S": "", "base_tables_pkl": null, "n_base_tables": 5}

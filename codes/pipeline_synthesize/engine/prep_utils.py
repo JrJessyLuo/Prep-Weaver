@@ -21,7 +21,8 @@ from common.llm_client import llm_generate_setup as _client_generate
 
 
 def llm_generate_setup(prompt: str, model: str = "gpt-4o-2024-08-06",
-                       json_format: bool = False, **kwargs) -> Dict[str, Any]:
+                       json_format: bool = False, temperature=0.0,
+                       **kwargs) -> Dict[str, Any]:
     """One LLM call, returning {text, input_tokens, output_tokens, ...}.
 
     A failure is returned rather than raised, matching the original contract:
@@ -30,7 +31,8 @@ def llm_generate_setup(prompt: str, model: str = "gpt-4o-2024-08-06",
     reply into a diagnosable error at the point that needs the text.
     """
     try:
-        return _client_generate(prompt, model=model, json_format=json_format, **kwargs)
+        return _client_generate(prompt, model=model, json_format=json_format,
+                                temperature=temperature, **kwargs)
     except Exception as exc:  # noqa: BLE001
         return {"text": "", "error": f"{type(exc).__name__}: {exc}",
                 "input_tokens": 0, "output_tokens": 0, "total_tokens": 0,

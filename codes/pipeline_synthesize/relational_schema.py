@@ -9,9 +9,26 @@ Output : results/pipeline_synthesize/schema/<Dataset>/relational_schema.jsonl
             join_edges: [{left_table, left_on, right_table, right_on}]}
 
 The relational schema declares, for each selected table, the CREATE TABLE it
-should have AFTER preparation, plus the join keys connecting those tables. It
-does not contain an answer SQL: this module describes the shape of the prepared
-data, and answering the question is a separate concern downstream.
+should have AFTER preparation, plus the join keys connecting those tables. The
+OUTPUT carries no answer SQL — describing the shape of the prepared data and
+answering the question are separate concerns.
+
+The PROMPT still asks for one, and then discards it. That is not an oversight.
+The SQL is a closure constraint: the rules require every `Tn.column` the query
+references to appear in that table's create_table_sql, which forces the model to
+declare the columns the question actually needs. Removing the request measurably
+degraded the declared schema on bird:
+
+    bird_08611c0f  dropped `Score` from the declaration, though the question
+                   ranks posts by it — writing `ORDER BY Score` would have
+                   forced it in
+    bird_1ab2aac9  declared `POPLATEK MESICNE` as a COLUMN; it is a VALUE inside
+                   the `frequency` column, and `WHERE frequency = '...'` would
+                   have kept the two apart
+
+Both then drove stage 3 to different operator chains, and the produced tables
+lost rows and join-key coverage. So the query is generated for its constraining
+effect and dropped at the boundary, rather than not being asked for at all.
 
 THE IDEA
 --------
@@ -371,7 +388,8 @@ table_2 columns: [Attribute, StationID, Value]
   {"logical_table": "table_2", "db_table": "gasstations", "create_table_sql":
    "CREATE TABLE gasstations (`GasStationID` INT, `ChainID` INT, `Country` VARCHAR(8), `Segment` VARCHAR(32), PRIMARY KEY (`GasStationID`));"}],
  "join_edges": [{"left_table": "table_1", "left_on": "GasStationID",
-                 "right_table": "table_2", "right_on": "GasStationID"}]}
+                 "right_table": "table_2", "right_on": "GasStationID"}],
+ "sql": "SELECT T2.Country FROM transactions_1k AS T1 INNER JOIN gasstations AS T2 ON T1.GasStationID = T2.GasStationID WHERE T1.Date = '2012-08-25' ORDER BY T1.Time ASC LIMIT 1"}
 Note both schemas are FULL — every column of the prepared table, not only the ones the question
 mentions."""
 
@@ -451,8 +469,10 @@ Also:
   - Only name a column whose values you can point to in the evidence. Do not invent a column
     whose values appear nowhere.
   - join_edges: one entry per edge; both column names must appear in their create_table_sql.
+  - sql: SQLite, uses `db_table AS T1/T2/...` with the alias number matching the logical table
+    number, and every `Tn.column` must appear in that table's create_table_sql.
 
-Output ONE JSON object: {{"tables": [...], "join_edges": [...]}}. No prose."""
+Output ONE JSON object: {{"tables": [...], "join_edges": [...], "sql": "..."}}. No prose."""
 
 
 def _preview(df: pd.DataFrame, rows: int = PREVIEW_ROWS, name_cap: int = 200,
@@ -539,7 +559,7 @@ def build_prompt(question: str, tables: list[dict], subquestions: dict | None = 
     """`tables` items: {logical_table, input_file, preview, evidence}."""
     subquestions = subquestions or {}
     parts = ["You design the TARGET schema each raw table should have after data preparation, "
-             "plus the join keys connecting those prepared tables.",
+             "plus a SQL over those prepared tables that answers the question.",
              FORMAT_EXAMPLE, _rules(), "\n### Task", f"Question: {question}", "\nRaw tables:"]
     for t in tables:
         parts.append(f"\n[{t['logical_table']}] file={t['input_file']} shape={t['preview']['shape']}")

@@ -59,8 +59,10 @@ def run(dataset: str, *, eval_dir: Optional[Path] = None,
             f"or pass --eval-dir; it is not part of this repository.")
 
     benchmark = DS.SOURCE_NAME.get(dataset, dataset)
-    ours_dir = Path(ours_dir or default_code_root(dataset))
-    out_csv = Path(out_csv or default_csv(dataset))
+    # Absolute: the evaluator runs with cwd set to its own directory, so a
+    # relative --out would be written there, or fail outright.
+    ours_dir = Path(ours_dir or default_code_root(dataset)).resolve()
+    out_csv = Path(out_csv or default_csv(dataset)).expanduser().resolve()
     out_csv.parent.mkdir(parents=True, exist_ok=True)
 
     cmd = [sys.executable, str(script),
