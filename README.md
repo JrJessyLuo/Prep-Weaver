@@ -37,7 +37,7 @@ Silicon or CUDA, chosen automatically.
 
 Download the datasets from
 
-> https://drive.google.com/drive/u/0/folders/1sL9wdeCPw5HNEf7yD0hx3HlxzAc0K3lM
+> https://drive.google.com/drive/u/0/folders/1wd3gLbtBSP8lelni0b8zhbAp2e4rffz2
 
 and unpack each dataset's folders **into its directory under `datasets/`** following the same subdirectory setting: 
 
