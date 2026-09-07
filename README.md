@@ -1,6 +1,6 @@
 # Prep-Weaver
 
-Autonomous data preparation: from a natural-language question and a collection
+Question-driven data preparation: from a natural-language question and a collection
 of raw tables, produce the minimal set of *joinable* tables plus the
 specification of how they join.
 
@@ -141,10 +141,8 @@ python -m eval.scorer --dataset "$DS" --source self_correction
 ```
 
 Those two are the self-correction ablation: `no_self_correction` scores the
-pipeline as synthesized, `self_correction` scores the state the repair tree
-chose. Both are read from this run's own artefacts under `results/` — the
-recorded operator chain is replayed on the raw tables, so what is scored is what
-the pipeline actually produces.
+pipeline as synthesized, `self_correction` scores the state the correction tree
+chose. 
 
 ### Baselines
 
@@ -164,8 +162,6 @@ baselines/baseline_results/<method>/<Dataset>/<task_id>.json    # SQL (pneuma)
 | `deepprep_adapted` | DeepPrep, same interface | pandas |
 | `text2pipeline_adapted` | Text-to-Pipeline, same interface | pandas |
 
-A baseline hands us arbitrary code rather than a recorded operator chain, so
-there is nothing to replay: the code is **executed** and watched.
 
 ```bash
 python -m eval.scorer --list                       # list the available method comparison
@@ -176,10 +172,6 @@ python -m eval.scorer --dataset "$DS" --source all # this system + every baselin
 `--source self_correction,gpt-5.5,dsstar` scores three methods side by side.
 `--list` names everything that can go there. (`--task-ids` is the one flag that
 is **space**-separated, not comma-separated.)
-
-Executing a baseline is the expensive part, so each method's per-task scores are
-cached under `results/eval/<Dataset>/baseline_cache/`; a second run reuses them.
-Delete that file to force a re-run.
 
 
 ### The four metrics
