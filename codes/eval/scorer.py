@@ -293,7 +293,9 @@ def score_task(pred: dict, gold: dict) -> dict:
 # reading a run out of results/
 # --------------------------------------------------------------------------- #
 
-def materialise(raw: Dict[str, pd.DataFrame], steps: Dict[str, list]
+def materialise(raw: Dict[str, pd.DataFrame], steps: Dict[str, list],
+                specs: Optional[Dict[str, dict]] = None,
+                on_error: Optional[List[str]] = None
                 ) -> Tuple[Dict[str, pd.DataFrame], List[pd.DataFrame]]:
     """Replay each table's chain, returning (final frames, intermediate frames).
 
@@ -307,29 +309,86 @@ def materialise(raw: Dict[str, pd.DataFrame], steps: Dict[str, list]
     step 3 counts there. Collecting them here closed most of that difference:
     exact per-task agreement on bird went 79.4% -> 83.0%, and table correctness
     0.5390 -> 0.5674 against the reference's 0.5957.
+
+    `steps` is not the whole chain. Between operators the pipeline applies a
+    deterministic rename -- a transposed index column `row_id` to the key column
+    the schema asks for, and casing-only differences -- which is not an operator
+    and so is not recorded. Replaying the operators alone therefore diverges at
+    the first step that refers to a renamed column: `Transpose` emits `row_id`,
+    the recorded `Pivot(index="Id")` then raises KeyError, and the table is left
+    unreshaped. That needs `specs`, the relational schema per logical table.
+
+    A chain that fails to replay is reported through `on_error`, never silently
+    swallowed. Falling back to the raw frame keeps a plausible-looking score:
+    the table is still there, its values still cover some gold columns, but the
+    declared join key is not a column of an unreshaped table, so the key is
+    dropped and relationship correctness reads as a modelling failure when it is
+    a replay failure. That mistake cost 15 of 141 bird tasks.
     """
     import test_param_synthesis as M
-    from table_executor import execute_chain
+    try:
+        from coverage_policy import plan_next, apply_auto_rename
+    except Exception:                       # engine not importable: no renames
+        plan_next = apply_auto_rename = None
+    try:
+        from table_specs import normalize_spec
+        from schema_conform import conform_to_schema
+    except Exception:
+        normalize_spec = conform_to_schema = None
+
+    def finish(df, spec):
+        """Schema conformance, which the pipeline applies AFTER the operator loop.
+
+        Not an operator, so not in `steps`. Skipping it leaves the literal
+        quoting the raw data carries: `bird_1ab2aac9` produced account ids as
+        '"2444"' where the gold domain holds 2444, so the two sets intersected
+        in ZERO values and the join key scored as wrong while being right.
+        """
+        if conform_to_schema is None or not spec:
+            return df
+        try:
+            types = (normalize_spec(spec) or {}).get("column_types") or {}
+            return conform_to_schema(df, types) if types else df
+        except Exception:
+            return df
+
+    def conform(df, spec):
+        """The pipeline's deterministic between-step repair."""
+        if plan_next is None or not spec:
+            return df
+        try:
+            return apply_auto_rename(df, plan_next(df, spec)["auto_rename"])
+        except Exception:
+            return df
 
     final, mids = {}, []
     for lt, df in raw.items():
-        frame = M.sanitize(df)
+        spec = (specs or {}).get(lt)
+        frame = conform(M.sanitize(df), spec)
         chain = steps.get(lt) or []
-        for i in range(1, len(chain)):          # every prefix but the whole chain
+        ok = True
+        for i, step in enumerate(chain, 1):
+            # `robust_execute`, not `execute_chain`. The exported script -- the
+            # thing the reference evaluator actually runs -- uses this one, and
+            # the two disagree: on bird_08611c0f `execute_chain` leaves the
+            # transposed index as `row_id`, the deterministic rename then claims
+            # it for the primary key rather than the column `Pivot` was given,
+            # and the step raises KeyError. `robust_execute` reproduces the
+            # recorded (10698, 21) exactly.
             try:
-                res, _err = execute_chain(frame, chain[:i])
-                if res is not None:
-                    mids.append(M.sanitize(res))
-            except Exception:
-                pass
-        if chain:
-            try:
-                res, _err = execute_chain(frame, chain)
-                if res is not None:
-                    frame = M.sanitize(res)
-            except Exception:
-                pass
-        final[lt] = frame
+                res, err = M.robust_execute(frame, step), None
+            except Exception as exc:
+                res, err = None, f"{type(exc).__name__}: {exc}"
+            if res is None:
+                ok = False
+                if on_error is not None:
+                    on_error.append(f"{lt} step {i}/{len(chain)} "
+                                    f"{step.get('op')}: {err}")
+                break
+            frame = conform(M.sanitize(res), spec)
+            if i < len(chain):
+                mids.append(frame)
+        final[lt] = finish(frame, spec)
     return final, mids
 
 
@@ -441,6 +500,7 @@ def load_run(dataset: str, source: str = "self_correction") -> Dict[str, dict]:
     source="auto"                the repaired one where it exists
     """
     source = _ALIASES.get(source, source)
+    replay_errors: Dict[str, List[str]] = {}
     from common import dataset as DS
     from common import paths as P
     from common.io_utils import load_jsonl_by_key
@@ -507,13 +567,28 @@ def load_run(dataset: str, source: str = "self_correction") -> Dict[str, dict]:
             steps = best["steps_by_table"]
             selected = list(rrec.get("selected_tables") or selected)
 
-        subs, mids = materialise(raw, steps)
+        specs = {t.get("logical_table"): t
+                 for t in ((srec.get("tables") or []) if srec else [])
+                 if t.get("logical_table")}
+        errs: List[str] = []
+        subs, mids = materialise(raw, steps, specs, errs)
+        if errs:
+            replay_errors[tid] = errs
         out[tid] = {
             "subtables": subs,
             "intermediates": mids,
             "join_edges": list(prec.get("join_keys") or srec.get("join_edges") or []),
             "selected_tables": selected,
         }
+    if replay_errors:
+        # Loud on purpose. A chain that does not replay is scored as if the
+        # method produced an unreshaped table, which reads as a modelling
+        # failure rather than an evaluation one.
+        print(f"[scorer] WARNING: {len(replay_errors)} task(s) whose recorded "
+              f"operator chain failed to replay; their scores are not "
+              f"meaningful. First few:")
+        for tid, msgs in list(replay_errors.items())[:5]:
+            print(f"    {tid}: {msgs[0]}")
     return out
 
 
